@@ -1,0 +1,667 @@
+---
+title: Analyses in A Randomized Study to Evaluate the Effect of a Nudge via Weekly
+  Emails on Students' Attitudes Towards Statistics
+author: "Nathan Taback"
+date: "July 25, 2022"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE,message=FALSE)
+library(gmodels)
+library(tidyverse)
+library(reshape2)
+library(cowplot)
+library(readr)
+library(lsmeans)
+library(broom)
+library(knitr)
+library(kableExtra)
+library(janitor)
+```
+
+# Introduction
+
+This document shows the analyses described in the article: A Randomized Study to Evaluate the Effect of a Nudge via Weekly Emails on Students' Attitudes Towards Statistics by Nathan Taback and Alison Gibbs.
+
+# Read in data
+
+```{r}
+
+dat2016_cons <- read_csv("effectofnudge.csv")
+
+# create Boolean variable for missing
+
+no_miss <- (
+  is.na(dat2016_cons$change_affect) == F &
+    is.na(dat2016_cons$change_cog) == F &
+    is.na(dat2016_cons$change_difficulty) == F &
+    is.na(dat2016_cons$change_effort) == F &
+    is.na(dat2016_cons$change_interest) == F &
+    is.na(dat2016_cons$change_value) == F
+)
+
+# create dataframe with all students that completed SATS-36
+
+dat2016_complete <- dat2016_cons %>% filter(no_miss)
+```
+
+
+# Table 3 - Distribution of student characteristics by intervention
+
+```{r}
+# use janitor lib to create table with pcts.
+
+t1 <- dat2016_complete %>% tabyl(cgpa, email) %>% 
+  adorn_totals(c("col")) %>%
+  adorn_percentages("col") %>% 
+  adorn_pct_formatting(digits = 0) %>% 
+  adorn_ns(position = "front") %>% rename("X1" = cgpa)
+
+t2 <- dat2016_complete %>% tabyl(sex, email) %>% 
+  adorn_totals(c("col")) %>%
+  adorn_percentages("col") %>% 
+  adorn_pct_formatting(digits = 0) %>% 
+  adorn_ns(position = "front") %>% rename("X1" = sex)
+  
+t3 <- dat2016_complete %>% #replace_na(list(Year = "Missing")) %>% 
+  tabyl(Year, email) %>% 
+  adorn_totals(c("col")) %>%
+  adorn_percentages("col") %>% 
+  adorn_pct_formatting(digits = 0) %>% 
+  adorn_ns(position = "front") %>% rename("X1" = Year)
+
+t4 <- dat2016_complete %>% 
+  tabyl(Section, email) %>% 
+  adorn_totals(c("col")) %>%
+  adorn_percentages("col") %>% 
+  adorn_pct_formatting(digits = 0) %>% 
+  adorn_ns(position = "front") %>% rename("X1" = Section)
+
+t5 <- rbind(t1,t2,t3,t4) %>% rename(" " = X1)
+
+t6 <- kable(t5, format = "html", booktabs = T, caption = "Participating students by type of email") %>%
+  add_header_above(c(" " = 1, "Type of Email" = 2, " " = 1)) %>%
+  kable_styling() %>%
+  pack_rows(group_label = "CGPA", start_row = 1, end_row = 4, latex_gap_space = "1em") %>%
+  pack_rows(group_label = "Sex", start_row = 5, end_row = 6, latex_gap_space = "1em") %>%
+  pack_rows(group_label = "Year of Study", start_row = 7, end_row = 11, latex_gap_space = "1em") %>%
+  pack_rows(group_label = "Course Section", start_row = 12, end_row = 18, latex_gap_space = "1em")
+
+t6
+```
+
+# Table 4
+
+```{r}
+
+sat_complete_tab4 <- function(sats)
+{
+  dim_name <- expr({{sats}})
+  dim_name <- quo_name(dim_name)
+  
+  dat2016_cons %>% 
+  mutate(comp_aff = !is.na({{sats}})) %>%
+  group_by(comp_aff, email) %>% summarise(n = n()) %>%
+  spread(email, n) %>%
+  rowwise() %>%
+    filter(comp_aff == TRUE) %>%
+    mutate(Total=sum(Interesting + Plain),
+         p1 = round(Interesting/703*100),
+         p2 = round(Plain/727*100),
+         p3 = round(Total/1430*100)) %>%
+    select(Interesting, p1, Plain, p2 ) %>% 
+    ungroup() %>% 
+    select(c(-1)) %>% 
+    mutate(dimension = dim_name)
+}
+
+# table 4
+
+r1 <- cbind(sat_complete_tab4(affect_pre), sat_complete_tab4(affect_post))
+
+r2 <- cbind(sat_complete_tab4(cog_pre), sat_complete_tab4(cog_post))
+
+r3 <- cbind(sat_complete_tab4(difficulty_pre), sat_complete_tab4(difficulty_post))
+
+r4 <- cbind(sat_complete_tab4(effort_pre), sat_complete_tab4(effort_post))
+
+r5 <- cbind(sat_complete_tab4(interest_pre), sat_complete_tab4(interest_post))
+
+r6 <- cbind(sat_complete_tab4(value_pre), sat_complete_tab4(value_post))
+
+rbind(r1, r2, r3, r4, r5, r6)
+
+```
+
+
+
+# Table 5
+
+
+```{r}
+
+sat_complete_tab5 <- function(sats)
+{
+  dim_name <- expr({{sats}})
+  dim_name <- quo_name(dim_name)
+  
+  dat2016_cons %>% 
+  mutate(comp_aff = !is.na({{sats}})) %>%
+  group_by(comp_aff, email) %>% summarise(n = n()) %>%
+  spread(email, n) %>%
+  rowwise() %>%
+  mutate(Total=sum(Interesting + Plain),
+         p1 = round(Interesting/703*100),
+         p2 = round(Plain/727*100),
+         p3 = round(Total/1430*100)) %>%
+    select(comp_aff, Interesting, p1, Plain, p2, Total,p3 ) %>%
+    filter(comp_aff == TRUE) %>%
+    ungroup() %>% 
+    select(c(-1)) %>% 
+    mutate(dimension = dim_name)
+}
+
+
+# change measures are not missing if completed both 
+# pre and post
+
+
+
+t1 <- sat_complete_tab5(change_affect) 
+t2 <- sat_complete_tab5(change_cog)
+t3 <- sat_complete_tab5(change_difficulty)
+t4 <- sat_complete_tab5(change_effort)
+t5 <- sat_complete_tab5(change_interest)
+t6 <- sat_complete_tab5(change_value)
+
+
+rbind(t1, t2, t3, t4, t5, t6)
+```
+
+
+# Missing data patterns
+
+```{r}
+library(mice)
+
+# missing value patterns - pre
+dat2016_cons |> 
+  select(ends_with("pre")) |> 
+  md.pattern(rotate.names = T, plot = F)
+
+# count missing value patterns - pre
+dat2016_cons |> 
+  select(ends_with("pre")) |> 
+  md.pattern(rotate.names = T, plot = F) |> NROW() - 1
+  
+
+# missing value patterns - post
+dat2016_cons |> 
+  select(ends_with("post")) |> 
+  md.pattern(rotate.names = T, plot = F) 
+
+
+# count missing value patterns - post
+dat2016_cons |> 
+  select(ends_with("post")) |> 
+  md.pattern(rotate.names = T, plot = F) |> NROW() - 1
+
+
+# missing value patterns - pre or post
+dat2016_cons |> 
+  select(ends_with("post") | ends_with("pre")) |> 
+  md.pattern(rotate.names = T, plot = F) 
+
+# count missing value patterns - pre or post
+dat2016_cons |> 
+  select(ends_with("post") | ends_with("pre")) |> 
+  md.pattern(rotate.names = T, plot = F) |> NROW() - 1
+
+```
+
+# Figure 3
+
+```{r}
+
+datbp <- dat2016_cons %>%
+  select(affect_pre,
+         cog_pre,
+         value_pre,
+         difficulty_pre,
+         interest_pre,
+         effort_pre,
+         email) %>%
+  gather(attitude, change_value, -email) %>%
+  mutate(email = recode(email, "Plain" = "No Nudge", "Interesting" = "Nudge"))
+
+
+datbp$attitude <-
+  recode(
+    datbp$attitude,
+    "affect_pre" = "Affect",
+    "cog_pre" = "Cognative",
+    "value_pre" = "Value",
+    "difficulty_pre" = "Difficulty",
+    "interest_pre" = "Interest",
+    "effort_pre" = "Effort"
+  )
+
+ggplot(datbp, aes(x = attitude, y = change_value, fill = email)) +
+  geom_boxplot() +
+  scale_fill_manual(values = c("black", "grey"), name = "Weekly Email Digest") +
+  labs(x = "Attitude", y = "Pre Course Attitude Score") +
+  theme(
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 14, face = "bold"),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    axis.line = element_line(colour = "black")
+  )
+
+```
+
+
+# Table 6
+
+```{r}
+CrossTable(dat2016_complete$Open_Email, dat2016_complete$email ,missing.include = T,prop.chisq=F)
+```
+
+# Figure 4
+
+```{r}
+mod1 <-
+  lm((affect_post - affect_pre) ~ affect_pre + cgpa + sex + Section + email +
+       Open_Email,
+     data = dat2016_cons)
+summary(mod1)
+mod1.ls <- lsmeans(mod1, "email")
+mod1.ls
+contrast(mod1.ls, "trt.vs.ctrl")
+a1 <- confint(contrast(mod1.ls, "trt.vs.ctrl"), level = 1 - (0.05 / 6))
+a1$att <- "Affect"
+
+
+mod1 <-
+  lm((cog_post - cog_pre) ~ cog_pre + cgpa + sex + Section + email + Open_Email,
+     data = dat2016_cons)
+summary(mod1)
+mod1.ls <- lsmeans(mod1, "email")
+mod1.ls
+contrast(mod1.ls, "trt.vs.ctrl")
+a2 <- confint(contrast(mod1.ls, "trt.vs.ctrl"), level = 1 - (0.05 / 6))
+a2$att <- "Cognitive"
+
+mod1 <-
+  lm((value_post - value_pre) ~ value_pre + cgpa + sex + Section + email +
+       Open_Email,
+     data = dat2016_cons)
+summary(mod1)
+mod1.ls <- lsmeans(mod1, "email")
+mod1.ls
+contrast(mod1.ls, "trt.vs.ctrl")
+a3 <- confint(contrast(mod1.ls, "trt.vs.ctrl"), level = 1 - (0.05 / 6))
+a3$att <- "Value"
+
+mod1 <-
+  lm((difficulty_post - difficulty_pre) ~ difficulty_pre + cgpa + sex + Section +
+       email + Open_Email,
+     data = dat2016_cons
+  )
+summary(mod1)
+mod1.ls <- lsmeans(mod1, "email")
+mod1.ls
+contrast(mod1.ls, "trt.vs.ctrl")
+a4 <- confint(contrast(mod1.ls, "trt.vs.ctrl"), level = 1 - (0.05 / 6))
+a4$att <- "Difficulty"
+
+mod1 <-
+  lm((interest_post - interest_pre) ~ interest_pre + cgpa + sex + Section +
+       email + Open_Email,
+     data = dat2016_cons
+  )
+summary(mod1)
+mod1.ls <- lsmeans(mod1, "email")
+mod1.ls
+contrast(mod1.ls, "trt.vs.ctrl")
+a5 <- confint(contrast(mod1.ls, "trt.vs.ctrl"), level = 1 - (0.05 / 6))
+a5$att <- "Interest"
+
+mod1 <-
+  lm((effort_post - effort_pre) ~ effort_pre + cgpa + sex + Section + email +
+       Open_Email,
+     data = dat2016_cons)
+summary(mod1)
+mod1.ls <- lsmeans(mod1, "email")
+mod1.ls
+contrast(mod1.ls, "trt.vs.ctrl")
+a6 <- confint(contrast(mod1.ls, "trt.vs.ctrl"), level = 1 - (0.05 / 6))
+a6$att <- "Effort"
+
+
+a <- rbind(a1, a2, a3, a4, a5, a6)
+
+ggplot(a, aes(x = att, y = estimate)) +
+  geom_errorbar(aes(ymin = lower.CL, ymax = upper.CL),
+                colour = "black",
+                width = .2) +
+  geom_point(size = 4) +
+  labs(title = "Difference Between Post Course Attitudes by Weekly Email Digest Type", x =
+         "",
+       y = "Adjusted 99% CI for Difference of SATS-36 Gain Score (No Nudge - Nudge)") +
+  geom_hline(aes(yintercept = 0)) +
+  theme(
+    legend.position = "none",
+    axis.text.x = element_text(angle = 90, size = 8, face = "bold"),
+    axis.text.y = element_text(size = 8),
+    axis.title.y = element_text(size = 8, face = "bold"),
+    axis.ticks.x = element_blank(),
+    axis.line.x = element_blank(),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_blank(),
+    axis.line = element_line(colour = "black")
+  )
+```
+
+# Figure 4 - among students that only opened email
+
+```{r}
+mod1 <- lm((affect_post-affect_pre)~affect_pre +cgpa+sex+Section+email+Open_Email,data = dat2016_cons[dat2016_cons$Open_Email==1,])
+summary(mod1)
+mod1.ls <- lsmeans(mod1,"email")
+mod1.ls
+contrast(mod1.ls,"trt.vs.ctrl")
+a1 <- confint(contrast(mod1.ls,"trt.vs.ctrl"), level = 1-(0.05/6))
+a1$att <- "Affect"
+
+
+mod1 <- lm((cog_post-cog_pre)~cog_pre +cgpa+sex+Section+email+Open_Email,data = dat2016_cons[dat2016_cons$Open_Email==1,])
+summary(mod1)
+mod1.ls <- lsmeans(mod1,"email")
+mod1.ls
+contrast(mod1.ls,"trt.vs.ctrl")
+a2 <- confint(contrast(mod1.ls,"trt.vs.ctrl"), level = 1-(0.05/6))
+a2$att <- "Cognitive"
+
+mod1 <- lm((value_post-value_pre)~value_pre +cgpa+sex+Section+email+Open_Email,data = dat2016_cons[dat2016_cons$Open_Email==1,])
+summary(mod1)
+mod1.ls <- lsmeans(mod1,"email")
+mod1.ls
+contrast(mod1.ls,"trt.vs.ctrl")
+a3 <- confint(contrast(mod1.ls,"trt.vs.ctrl"), level = 1-(0.05/6))
+a3$att <- "Value"
+
+mod1 <- lm((difficulty_post-difficulty_pre)~difficulty_pre +cgpa+sex+Section+email+Open_Email,data = dat2016_cons[dat2016_cons$Open_Email==1,])
+summary(mod1)
+mod1.ls <- lsmeans(mod1,"email")
+mod1.ls
+contrast(mod1.ls,"trt.vs.ctrl")
+a4 <- confint(contrast(mod1.ls,"trt.vs.ctrl"), level = 1-(0.05/6))
+a4$att <- "Difficulty"
+
+mod1 <- lm((interest_post-interest_pre)~interest_pre +cgpa+sex+Section+email+Open_Email,data = dat2016_cons[dat2016_cons$Open_Email==1,])
+summary(mod1)
+mod1.ls <- lsmeans(mod1,"email")
+mod1.ls
+contrast(mod1.ls,"trt.vs.ctrl")
+a5 <- confint(contrast(mod1.ls,"trt.vs.ctrl"), level = 1-(0.05/6))
+a5$att <- "Interest"
+
+mod1 <- lm((effort_post-effort_pre)~effort_pre +cgpa+sex+Section+email+Open_Email,data = dat2016_cons[dat2016_cons$Open_Email==1,])
+summary(mod1)
+mod1.ls <- lsmeans(mod1,"email")
+mod1.ls
+contrast(mod1.ls,"trt.vs.ctrl")
+a6 <- confint(contrast(mod1.ls,"trt.vs.ctrl"), level = 1-(0.05/6))
+a6$att <- "Effort"
+
+
+a <- rbind(a1,a2,a3,a4,a5,a6)
+
+ggplot(a, aes(x=att, y=estimate)) + 
+  geom_errorbar(aes(ymin=lower.CL, ymax=upper.CL), colour="black", width=.2) + 
+  geom_point(size=4) +
+  labs(title="Difference Between Post Course Attitudes by Weekly Email Digest Type",x="", 
+       y="Adjusted 99% CI for Difference of Post SATS-36 Score (Plain - Interesting)") +
+  geom_hline(aes(yintercept=0)) +
+  theme(legend.position="none", axis.text.x = element_text(angle=90,size = 8, face = "bold"), 
+        axis.text.y = element_text(size = 8),
+        axis.title.y = element_text(size = 8, face = "bold"),
+        axis.ticks.x = element_blank(),axis.line.x = element_blank(),
+        panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+```
+
+
+# Table 7
+
+```{r}
+mod2 <-
+  lm(coursemark ~ email + cgpa + Section, data = dat2016_complete)
+summary(mod2)
+mod2.ls <- lsmeans(mod2, "email")
+mod2.ls
+contrast(mod2.ls, "trt.vs.ctrl")
+confint(contrast(mod2.ls, "trt.vs.ctrl"), level = .95)
+
+mod2 <-
+  lm(coursemark ~ email + cgpa + Section,
+     data = dat2016_complete[dat2016_complete$Open_Email == 0,])
+summary(mod2)
+mod2.ls <- lsmeans(mod2, "email")
+mod2.ls
+contrast(mod2.ls, "trt.vs.ctrl")
+confint(contrast(mod2.ls, "trt.vs.ctrl"), level = .95)
+
+
+mod2 <-
+  lm(coursemark ~ email + cgpa + Section,
+     data = dat2016_complete[dat2016_complete$Open_Email == 1,])
+summary(mod2)
+mod2.ls <- lsmeans(mod2, "email")
+contrast(mod2.ls, "trt.vs.ctrl")
+confint(contrast(mod2.ls, "trt.vs.ctrl"), level = .95)
+```
+
+# Table 8
+
+```{r}
+make_table_mean <- function(c1){
+  dat2016_complete %>% 
+    select(ID,email, {{c1}}) %>% 
+    pivot_longer(cols = {{c1}}, 
+               names_to = "categ", values_to = "value") %>%
+    group_by(email, categ) %>%
+    summarise(m = round(mean(value),2)) %>%
+    pivot_wider(names_from = email, values_from = c(m))
+}
+
+make_table_sd <- function(c1){
+  dat2016_complete %>% 
+    select(ID,email, {{c1}}) %>% 
+    pivot_longer(cols = {{c1}}, 
+               names_to = "categ", values_to = "value") %>%
+    group_by(email, categ) %>%
+    summarise(m = round(sd(value),2)) %>%
+    pivot_wider(names_from = email, values_from = c(m))
+}
+
+
+#pre-mean
+t1 <- make_table_mean("affect_pre")
+t2 <- make_table_mean("cog_pre")
+t3 <- make_table_mean("value_pre")
+t4 <- make_table_mean("difficulty_pre")
+t5 <- make_table_mean("interest_pre")
+t6 <- make_table_mean("effort_pre")
+
+pre_mean <- rbind(t1,t2,t3,t4,t5,t6)
+  
+#pre-sd
+t1 <- make_table_sd("affect_pre") 
+t2 <- make_table_sd("cog_pre")
+t3 <- make_table_sd("value_pre")
+t4 <- make_table_sd("difficulty_pre")
+t5 <- make_table_sd("interest_pre")
+t6 <- make_table_sd("effort_pre")
+
+pre_sd <- rbind(t1,t2,t3,t4,t5,t6)
+
+
+#post-mean
+t1 <- make_table_mean("affect_post")
+t2 <- make_table_mean("cog_post")
+t3 <- make_table_mean("value_post")
+t4 <- make_table_mean("difficulty_post")
+t5 <- make_table_mean("interest_post")
+t6 <- make_table_mean("effort_post")
+
+post_mean <- rbind(t1,t2,t3,t4,t5,t6)
+
+#post-sd
+t1 <- make_table_sd("affect_post") 
+t2 <- make_table_sd("cog_post")
+t3 <- make_table_sd("value_post")
+t4 <- make_table_sd("difficulty_post")
+t5 <- make_table_sd("interest_post")
+t6 <- make_table_sd("effort_post")
+
+post_sd <- rbind(t1,t2,t3,t4,t5,t6)
+
+
+
+#change-mean
+
+t1 <- make_table_mean("change_affect") 
+t2 <- make_table_mean("change_cog")
+t3 <- make_table_mean("change_value")
+t4 <- make_table_mean("change_difficulty")
+t5 <- make_table_mean("change_interest")
+t6 <- make_table_mean("change_effort")
+
+change_mean <- rbind(t1,t2,t3,t4,t5,t6)
+
+#change-sd
+t1 <- make_table_sd("change_affect") 
+t2 <- make_table_sd("change_cog")
+t3 <- make_table_sd("change_value")
+t4 <- make_table_sd("change_difficulty")
+t5 <- make_table_sd("change_interest")
+t6 <- make_table_sd("change_effort")
+
+change_sd <- rbind(t1,t2,t3,t4,t5,t6)
+
+#plain pre mean and sd
+plain_pre <- cbind(pre_mean[,c(1,3)],pre_sd[,c(3)]) %>% 
+  rename("Mean"="Plain") %>% rename("SD"="Plain") %>%
+  mutate(Category = recode(categ, 
+                           "affect_pre"="Affect", "cog_pre"="Cognitive", 
+                           "value_pre"="Value", "difficulty_pre"="Difficulty",
+                           "interest_pre"="Interest", "effort_pre"="Effort")) %>%
+  select(Category, Mean, SD)
+
+#plain post mean and sd
+plain_post <- cbind(post_mean[,c(1,3)],post_sd[,c(3)]) %>% 
+  rename("Mean"="Plain") %>% rename("SD"="Plain") %>%
+  mutate(Category = recode(categ, 
+                           "affect_post"="Affect", "cog_post"="Cognitive", 
+                           "value_post"="Value", "difficulty_post"="Difficulty",
+                           "interest_post"="Interest", "effort_post"="Effort")) %>%
+  select(Category, Mean, SD)
+
+#plain table
+
+#plain change
+plain_change <- cbind(change_mean[,c(1,3)],change_sd[,c(3)]) %>% 
+  rename("Mean"="Plain") %>% rename("SD"="Plain") %>%
+  mutate(Category = recode(categ, 
+                           "change_affect"="Affect", "change_cog"="Cognitive", 
+                           "change_value"="Value", "change_difficulty"="Difficulty",
+                           "change_interest"="Interest", "change_effort"="Effort")) %>%
+  select(Category, Mean, SD)
+
+
+#plain table
+
+plain_pre %>% 
+  left_join(plain_post, by = "Category", suffix = c("_pre","_post")) %>%
+  left_join(plain_change, by = "Category") %>%
+    rename(Mean_pre_pla = Mean_pre, SD_pre_pla=SD_pre, 
+         Mean_post_pla=Mean_post, SD_post_pla=SD_post,
+         Mean_change_pla=Mean, SD_change_pla=SD) %>%
+  kbl() %>%
+  add_header_above(c(" " = 1, "Pre"=2, "Post"=2, "Change"=2 )) %>%
+  add_header_above(c(" " = 1, "Plain" = 6))
+  
+
+
+#interesting pre mean and sd
+interesting_pre <- cbind(pre_mean[,c(1,2)],pre_sd[,c(2)]) %>% 
+  rename("Mean"="Interesting") %>% rename("SD"="Interesting") %>%
+  mutate(Category = recode(categ, 
+                           "affect_pre"="Affect", "cog_pre"="Cognitive", 
+                           "value_pre"="Value", "difficulty_pre"="Difficulty",
+                           "interest_pre"="Interest", "effort_pre"="Effort")) %>%
+  select(Category, Mean, SD)
+
+#interesting post mean and sd
+interesting_post <- cbind(post_mean[,c(1,2)],post_sd[,c(2)]) %>% 
+  rename("Mean"="Interesting") %>% rename("SD"="Interesting") %>%
+  mutate(Category = recode(categ, 
+                           "affect_post"="Affect", "cog_post"="Cognitive", 
+                           "value_post"="Value", "difficulty_post"="Difficulty",
+                           "interest_post"="Interest", "effort_post"="Effort")) %>%
+  select(Category, Mean, SD)
+
+
+#interesting change
+interesting_change <- cbind(change_mean[,c(1,2)],change_sd[,c(2)]) %>% 
+  rename("Mean"="Interesting") %>% rename("SD"="Interesting") %>%
+  mutate(Category = recode(categ, 
+                           "change_affect"="Affect", "change_cog"="Cognitive", 
+                           "change_value"="Value", "change_difficulty"="Difficulty",
+                           "change_interest"="Interest", "change_effort"="Effort")) %>%
+  select(Category, Mean, SD)
+
+#interesting table
+
+interesting_pre %>% 
+  left_join(interesting_post, by = "Category", suffix = c("_pre","_post")) %>%
+  left_join(interesting_change, by = "Category") %>% 
+  rename(Mean_pre_int = Mean_pre, SD_pre_int=SD_pre, 
+         Mean_post_int=Mean_post, SD_post_int=SD_post,
+         Mean_change_int=Mean, SD_change_int=SD) %>%
+  kbl() %>%
+  add_header_above(c(" " = 1, "Pre"=2, "Post"=2, "Change"=2 )) %>%
+  add_header_above(c(" " = 1, "Interesting" = 6))
+
+#combine tables
+
+q1 <- plain_pre %>% 
+  left_join(plain_post, by = "Category", suffix = c("_pre","_post")) %>%
+  left_join(plain_change, by = "Category") %>%
+    rename(Mean_pre_pla = Mean_pre, SD_pre_pla=SD_pre, 
+         Mean_post_pla=Mean_post, SD_post_pla=SD_post,
+         Mean_change_pla=Mean, SD_change_pla=SD)
+  
+q2 <- interesting_pre %>% 
+  left_join(interesting_post, by = "Category", suffix = c("_pre","_post")) %>%
+  left_join(interesting_change, by = "Category") %>% 
+  rename(Mean_pre_int = Mean_pre, SD_pre_int=SD_pre, 
+         Mean_post_int=Mean_post, SD_post_int=SD_post,
+         Mean_change_int=Mean, SD_change_int=SD)
+
+
+q1 %>% left_join(q2, by = "Category") %>% 
+  kbl(caption = "SATS-36 Summary Statistics") %>%
+  kable_styling() %>%
+  add_header_above(c(" " = 1, "Pre"=2, "Post"=2, "Change"=2,"Pre"=2, "Post"=2, "Change"=2 )) %>%
+  add_header_above(c(" " = 1, "Plain" = 6, "Interesting"=6))
+
+```
+
